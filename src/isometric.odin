@@ -19,6 +19,11 @@ KEY_PAN_SPEED :: 1000
 MIN_ZOOM :: 0.05
 MAX_ZOOM :: 0.7
 
+character :: struct {
+	grid_position: rl.Vector2,
+	sprite:        rl.Texture2D,
+}
+
 
 main :: proc() {
 	context.logger = log.create_console_logger(lowest = .Debug)
@@ -26,10 +31,15 @@ main :: proc() {
 
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .WINDOW_ALWAYS_RUN})
 	rl.InitWindow(1920, 1080, "isometric")
-	// rl.SetTargetFPS(60)
+	rl.SetTargetFPS(60)
 
 	cube_texture := rl.LoadTexture("assets/cube.png")
 	sprite := rl.LoadTexture("assets/isometric_sprites.PNG")
+
+	char: character = {
+		grid_position = {0, 0},
+		sprite        = sprite,
+	}
 
 
 	grid: [i32(GRID_SIZE.x)][i32(GRID_SIZE.y)]rl.Color
@@ -116,9 +126,18 @@ main :: proc() {
 			grid[i32(grid_pos.x)][i32(grid_pos.y)] = rl.WHITE
 		}
 
+		if rl.IsMouseButtonPressed(.RIGHT) {
+
+			if gx >= 0 && gx < GRID_SIZE.x && gy >= 0 && gy < GRID_SIZE.y {
+				char.grid_position = grid_pos
+
+			}
+		}
 		rl.DrawTextureEx(
-			sprite,
-			grid_to_world(2) + {30, -100} - {0, calc_offset(2, animation_progress)},
+			char.sprite,
+			grid_to_world(char.grid_position) +
+			{30, -100} -
+			{0, calc_offset(char.grid_position, animation_progress)},
 			rotation = 0,
 			scale = 5,
 			tint = rl.WHITE,
