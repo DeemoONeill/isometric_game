@@ -10,21 +10,23 @@ GRID_SIZE: [2]f32 : {100, 100}
 
 SQUARE_SIZE: [2]f32 : {391, 450}
 
-mov: matrix[2, 2]f32 : {0.5, 0.25, -0.5, 0.25}
+MOVE_MATRIX: matrix[2, 2]f32 : {0.5, 0.25, -0.5, 0.25}
 
-KEY_PAN_SPEED :: 30
+INVERSE_MOVE: matrix[2, 2]f32 : {1, -1, 2, 2}
+
+
+KEY_PAN_SPEED :: 1000
 MIN_ZOOM :: 0.05
 MAX_ZOOM :: 0.7
 
 
 main :: proc() {
-	context.logger = log.create_console_logger(lowest = .Info)
+	context.logger = log.create_console_logger(lowest = .Debug)
 
 
-	inverse := la.inverse(mov)
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .WINDOW_ALWAYS_RUN})
 	rl.InitWindow(1920, 1080, "isometric")
-	rl.SetTargetFPS(60)
+	// rl.SetTargetFPS(60)
 
 	cube_texture := rl.LoadTexture("assets/cube.png")
 	sprite := rl.LoadTexture("assets/isometric_sprites.PNG")
@@ -33,7 +35,7 @@ main :: proc() {
 	grid: [i32(GRID_SIZE.x)][i32(GRID_SIZE.y)]rl.Color
 	for y in 0 ..< GRID_SIZE.y {
 		for x in 0 ..< GRID_SIZE.x {
-			grid[i32(x)][i32(y)] = rl.WHITE
+			grid[i32(x)][i32(y)] = {255, 255, 255, 150}
 		}}
 
 	animation_progress: f32
@@ -44,7 +46,8 @@ main :: proc() {
 	}
 
 	for !rl.WindowShouldClose() {
-		animation_progress += rl.GetFrameTime() / 2
+		dt := rl.GetFrameTime()
+		animation_progress += dt / 2
 		mouse_wheel := rl.GetMouseWheelMove()
 
 		camera.zoom = clamp(camera.zoom + (0.1 * mouse_wheel), MIN_ZOOM, MAX_ZOOM)
@@ -54,78 +57,73 @@ main :: proc() {
 		}
 
 		if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP) {
-			camera.target.y -= KEY_PAN_SPEED
+			camera.target.y -= KEY_PAN_SPEED * dt
 		}
 		if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT) {
-			camera.target.x -= KEY_PAN_SPEED
+			camera.target.x -= KEY_PAN_SPEED * dt
 		}
 		if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN) {
-			camera.target.y += KEY_PAN_SPEED
+			camera.target.y += KEY_PAN_SPEED * dt
 		}
 		if rl.IsKeyDown(.D) || rl.IsKeyDown(.RIGHT) {
-			camera.target.x += KEY_PAN_SPEED
+			camera.target.x += KEY_PAN_SPEED * dt
 		}
 
 		rl.BeginDrawing()
 		defer rl.EndDrawing()
-		// defer draw_ui()
+		defer draw_ui()
 		rl.BeginMode2D(camera)
 		defer rl.EndMode2D()
-		// screen := rl.GetScreenToWorld2D({10, 10}, camera)
 		rl.ClearBackground(rl.BLACK)
 
 
-		mouse := rl.GetMousePosition()
+		mouse := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
 
-		grid_pos := (mouse * inverse)
-
-		grid_pos.x -= SQUARE_SIZE.x / 2
+		grid_pos := world_to_grid(mouse)
 
 
-		grid_pos /= SQUARE_SIZE
-		grid_pos.y += 2
+		gx, gy := grid_pos.x, grid_pos.y
+		if gx >= 0 && gx < GRID_SIZE.x && gy >= 0 && gy < GRID_SIZE.y {
+			grid[i32(grid_pos.x)][i32(grid_pos.y)] = rl.RED
+		}
 
-		grid_pos.x = math.floor(grid_pos.x)
-		grid_pos.y = math.floor(grid_pos.y)
+		culling := calculate_culling(camera)
 
 
 		for y in 0 ..< GRID_SIZE.y {
 			for x in 0 ..< GRID_SIZE.x {
 				res: [2]f32 = {x, y}
-				outcome := res * mov * SQUARE_SIZE
-				offset := i32(calc_offset(x, y, animation_progress))
+				offset: i32
 
-				x_pos := i32(outcome.x) - i32(SQUARE_SIZE.x) / 2
-
-				y_pos := i32(outcome.y) + (offset)
-				if y == 0 && x == 0 {
-					// fmt.printfln("grid_pos %d", y_pos)
-					log.debugf("grid_pos: %d", y_pos)
+				outcome := grid_to_world(res)
+				if !rl.CheckCollisionRecs(
+					culling,
+					{outcome.x, outcome.y, SQUARE_SIZE.x, SQUARE_SIZE.y},
+				) {
+					continue
 				}
-				rl.DrawTexture(cube_texture, x_pos, y_pos, grid[i32(x)][i32(y)])
+				rl.DrawTextureV(
+					cube_texture,
+					outcome - {0, calc_offset(res, animation_progress)},
+					grid[i32(x)][i32(y)],
+				)
+
 
 			}
 		}
 
-		cell: [2]f32 = {0, 0}
-		screen_pos := cell * mov
-		x, y := cell.x, cell.y
-		offset := calc_offset(x, y, animation_progress)
-
-		x_pos := screen_pos.x - (SQUARE_SIZE.x / 2) + 50
-		y_pos := screen_pos.y - offset - (SQUARE_SIZE.y / 4)
-		log.debug(y_pos)
+		if gx >= 0 && gx < GRID_SIZE.x && gy >= 0 && gy < GRID_SIZE.y {
+			grid[i32(grid_pos.x)][i32(grid_pos.y)] = rl.WHITE
+		}
 
 		rl.DrawTextureEx(
 			sprite,
-			{x_pos, y_pos},
+			grid_to_world(2) + {30, -100} - {0, calc_offset(2, animation_progress)},
 			rotation = 0,
 			scale = 5,
-			tint = grid[i32(x)][i32(y)],
+			tint = rl.WHITE,
 		)
 
-
-		// rl.DrawText(fmt.ctprint(rl.GetFPS()), i32(10), i32(10), 30, rl.GREEN)
 
 	}
 
@@ -144,10 +142,42 @@ draw_ui :: proc() {
 	rl.DrawRectangle(padding, v_pos, width - (2 * padding), v_padding, rl.RED)
 }
 
-calc_offset :: proc(x, y, animation_progress: f32) -> f32 {
+calc_offset :: proc(position: [2]f32, animation_progress: f32) -> f32 {
+	x, y := position.x, position.y
 	return(
 		math.sin(animation_progress + 50 + ((x + x + y) / 3)) * 70 +
 		math.cos(animation_progress + 50 + (y + y + x) / 3) * 70 \
 	)
 
+}
+
+half_tile := SQUARE_SIZE / 2
+
+world_to_grid :: proc(world_position: [2]f32) -> [2]f32 {
+	local_pos := world_position + {half_tile.x, 0}
+	grid_pos := local_pos / SQUARE_SIZE * INVERSE_MOVE
+
+	return {math.round(grid_pos.x) - 1, math.round(grid_pos.y)}
+}
+
+grid_to_world :: proc(grid_pos: [2]f32) -> [2]f32 {
+	world_pos := grid_pos * MOVE_MATRIX * SQUARE_SIZE
+	world_pos -= {half_tile.x, 0}
+
+	return world_pos
+
+}
+
+calculate_culling :: proc(camera: rl.Camera2D) -> rl.Rectangle {
+	w, h := rl.GetScreenWidth(), rl.GetScreenHeight()
+	origin := rl.GetScreenToWorld2D({0, 0}, camera)
+
+	max := rl.GetScreenToWorld2D({f32(w), f32(h)}, camera)
+
+	return rl.Rectangle {
+		x = origin.x,
+		y = origin.y,
+		width = max.x - origin.x,
+		height = max.y - origin.y,
+	}
 }
