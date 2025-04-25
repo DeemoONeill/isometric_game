@@ -92,9 +92,25 @@ main :: proc() {
 		grid_pos := world_to_grid(mouse)
 
 
-		gx, gy := grid_pos.x, grid_pos.y
-		if gx >= 0 && gx < GRID_SIZE.x && gy >= 0 && gy < GRID_SIZE.y {
+		if in_grid(grid_pos) {
 			grid[i32(grid_pos.x)][i32(grid_pos.y)] = rl.RED
+		}
+
+		if rl.IsMouseButtonPressed(.RIGHT) {
+			if in_grid(grid_pos) {
+				path, ok := a_star(char.grid_position, grid_pos)
+				defer delete(path)
+				if !ok {
+				} else {
+					length := len(path)
+					for i in 0 ..< length {
+						pos := pop(&path)
+						grid[int(pos.x)][int(pos.y)] = rl.GREEN
+					}
+				}
+
+				char.grid_position = grid_pos
+			}
 		}
 
 		culling := calculate_culling(camera)
@@ -122,17 +138,11 @@ main :: proc() {
 			}
 		}
 
-		if gx >= 0 && gx < GRID_SIZE.x && gy >= 0 && gy < GRID_SIZE.y {
+		if in_grid(grid_pos) {
 			grid[i32(grid_pos.x)][i32(grid_pos.y)] = rl.WHITE
 		}
 
-		if rl.IsMouseButtonPressed(.RIGHT) {
 
-			if gx >= 0 && gx < GRID_SIZE.x && gy >= 0 && gy < GRID_SIZE.y {
-				char.grid_position = grid_pos
-
-			}
-		}
 		rl.DrawTextureEx(
 			char.sprite,
 			grid_to_world(char.grid_position) +
@@ -199,4 +209,13 @@ calculate_culling :: proc(camera: rl.Camera2D) -> rl.Rectangle {
 		width = max.x - origin.x,
 		height = max.y - origin.y,
 	}
+}
+
+in_grid :: proc(position: rl.Vector2) -> bool {
+	return(
+		position.x >= 0 &&
+		position.x < GRID_SIZE.x &&
+		position.y >= 0 &&
+		position.y < GRID_SIZE.y \
+	)
 }
