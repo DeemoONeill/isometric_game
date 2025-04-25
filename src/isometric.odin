@@ -180,8 +180,6 @@ main :: proc() {
 			scale = 5,
 			tint = rl.WHITE,
 		)
-
-		rl.DrawText(fmt.ctprintf("%v, %v", char), 30, 30, 40, rl.GRAY)
 	}
 
 
