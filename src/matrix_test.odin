@@ -12,3 +12,8 @@ test_matrix_functions :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+@(test)
+test_manhattan_distance :: proc(t: ^testing.T) {
+	testing.expect_value(t, manhattan_distance({0, 0}, {1, 1}), 2)
+}
