@@ -14,7 +14,7 @@ SQUARE_SIZE: [2]f32 : {391, 450}
 MOVE_MATRIX: matrix[2, 2]f32 : {0.5, 0.25, -0.5, 0.25}
 
 INVERSE_MOVE: matrix[2, 2]f32 : {1, -1, 2, 2}
-MOVEMENT_SPEED :: 5
+MOVEMENT_SPEED :: 500
 
 
 KEY_PAN_SPEED :: 1000
@@ -249,25 +249,21 @@ in_grid :: proc(position: rl.Vector2) -> bool {
 }
 
 advance_character :: proc(char: ^character, dt: f32) {
+	epsilon: f32 = 10.0 // how close is "good enough" to the center (in pixels)
+
 	char.current_grid_position = world_to_grid(char.current_world_position)
 
-	if char.current_grid_position == char.target_grid_position && len(char.path) > 0 {
+	target_world_pos := grid_to_world(char.target_grid_position)
+
+	if len(char.path) > 0 && char.current_grid_position == char.target_grid_position {
 		char.target_grid_position = pop(char.path)
-	} else if len(char.path) == 0 &&
-	   char.current_world_position == grid_to_world(char.current_grid_position) {
+	} else if rl.Vector2Distance(char.current_world_position, target_world_pos) < epsilon {
+		// check if we're close enough to the *center* of the target
 		char.moving = false
 		return
 	}
 
-	direction: rl.Vector2
-	if char.current_grid_position == char.target_grid_position {
-		direction = char.current_world_position - grid_to_world(char.current_grid_position)
-
-	} else {
-		direction =
-			grid_to_world(char.current_grid_position) - (grid_to_world(char.target_grid_position))
-		char.current_world_position -= direction * dt * MOVEMENT_SPEED
-	}
-
-
+	// move towards the current target
+	direction := rl.Vector2Normalize(target_world_pos - char.current_world_position)
+	char.current_world_position += direction * dt * MOVEMENT_SPEED
 }
