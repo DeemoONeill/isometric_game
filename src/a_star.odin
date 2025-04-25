@@ -18,7 +18,9 @@ reconstruct_path :: proc(
 	current: rl.Vector2,
 ) -> [dynamic]rl.Vector2 {
 	current := current
-	total_path: [dynamic]rl.Vector2 = {current}
+	@(static) total_path: [dynamic]rl.Vector2
+	clear(&total_path)
+	append(&total_path, current)
 	for (current in cameFrom) {
 		current = cameFrom[current]
 		append(&total_path, current)
