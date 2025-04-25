@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import la "core:math/linalg"
+import "core:mem"
 import rl "vendor:raylib"
 
 GRID_SIZE: [2]f32 : {100, 100}
@@ -13,6 +14,7 @@ SQUARE_SIZE: [2]f32 : {391, 450}
 MOVE_MATRIX: matrix[2, 2]f32 : {0.5, 0.25, -0.5, 0.25}
 
 INVERSE_MOVE: matrix[2, 2]f32 : {1, -1, 2, 2}
+MOVEMENT_SPEED :: 5
 
 
 KEY_PAN_SPEED :: 1000
@@ -20,13 +22,39 @@ MIN_ZOOM :: 0.05
 MAX_ZOOM :: 0.7
 
 character :: struct {
-	grid_position: rl.Vector2,
-	sprite:        rl.Texture2D,
+	path:                   ^[dynamic]rl.Vector2,
+	sprite:                 rl.Texture2D,
+	current_grid_position:  rl.Vector2,
+	current_world_position: rl.Vector2,
+	target_grid_position:   rl.Vector2,
+	moving:                 bool,
 }
 
 
 main :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			if len(track.bad_free_array) > 0 {
+				fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+				for entry in track.bad_free_array {
+					fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
 	context.logger = log.create_console_logger(lowest = .Debug)
+	defer log.destroy_console_logger(context.logger)
 
 
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .WINDOW_ALWAYS_RUN})
@@ -37,10 +65,11 @@ main :: proc() {
 	sprite := rl.LoadTexture("assets/isometric_sprites.PNG")
 
 	char: character = {
-		grid_position = {0, 0},
-		sprite        = sprite,
+		current_grid_position = {0, 0},
+		sprite                = sprite,
 	}
-
+	defer {if char.path != nil {delete_dynamic_array(char.path^)}}
+	char.current_world_position = grid_to_world(char.current_grid_position)
 
 	grid: [i32(GRID_SIZE.x)][i32(GRID_SIZE.y)]rl.Color
 	for y in 0 ..< GRID_SIZE.y {
@@ -90,6 +119,7 @@ main :: proc() {
 		mouse := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
 
 		grid_pos := world_to_grid(mouse)
+		grid_pos.x -= 1
 
 
 		if in_grid(grid_pos) {
@@ -98,19 +128,18 @@ main :: proc() {
 
 		if rl.IsMouseButtonPressed(.RIGHT) {
 			if in_grid(grid_pos) {
-				path, ok := a_star(char.grid_position, grid_pos)
-				defer delete(path)
+				path, ok := a_star(char.current_grid_position, grid_pos)
 				if !ok {
 				} else {
-					length := len(path)
-					for i in 0 ..< length {
-						pos := pop(&path)
-						grid[int(pos.x)][int(pos.y)] = rl.GREEN
-					}
+					char.path = &path
+					char.target_grid_position = pop(&path)
+					char.moving = true
 				}
 
-				char.grid_position = grid_pos
 			}
+		}
+		if char.moving {
+			advance_character(&char, dt)
 		}
 
 		culling := calculate_culling(camera)
@@ -142,18 +171,17 @@ main :: proc() {
 			grid[i32(grid_pos.x)][i32(grid_pos.y)] = rl.WHITE
 		}
 
-
 		rl.DrawTextureEx(
 			char.sprite,
-			grid_to_world(char.grid_position) +
+			char.current_world_position +
 			{30, -100} -
-			{0, calc_offset(char.grid_position, animation_progress)},
+			{0, calc_offset(char.current_grid_position, animation_progress)},
 			rotation = 0,
 			scale = 5,
 			tint = rl.WHITE,
 		)
 
-
+		rl.DrawText(fmt.ctprintf("%v, %v", char), 30, 30, 40, rl.GRAY)
 	}
 
 
@@ -186,7 +214,7 @@ world_to_grid :: proc(world_position: [2]f32) -> [2]f32 {
 	local_pos := world_position + {half_tile.x, 0}
 	grid_pos := local_pos / SQUARE_SIZE * INVERSE_MOVE
 
-	return {math.round(grid_pos.x) - 1, math.round(grid_pos.y)}
+	return {math.round(grid_pos.x), math.round(grid_pos.y)}
 }
 
 grid_to_world :: proc(grid_pos: [2]f32) -> [2]f32 {
@@ -218,4 +246,28 @@ in_grid :: proc(position: rl.Vector2) -> bool {
 		position.y >= 0 &&
 		position.y < GRID_SIZE.y \
 	)
+}
+
+advance_character :: proc(char: ^character, dt: f32) {
+	char.current_grid_position = world_to_grid(char.current_world_position)
+
+	if char.current_grid_position == char.target_grid_position && len(char.path) > 0 {
+		char.target_grid_position = pop(char.path)
+	} else if len(char.path) == 0 &&
+	   char.current_world_position == grid_to_world(char.current_grid_position) {
+		char.moving = false
+		return
+	}
+
+	direction: rl.Vector2
+	if char.current_grid_position == char.target_grid_position {
+		direction = char.current_world_position - grid_to_world(char.current_grid_position)
+
+	} else {
+		direction =
+			grid_to_world(char.current_grid_position) - (grid_to_world(char.target_grid_position))
+		char.current_world_position -= direction * dt * MOVEMENT_SPEED
+	}
+
+
 }
